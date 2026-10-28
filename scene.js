@@ -268,27 +268,32 @@ function beamTexture() {
   const ctx = c.getContext("2d");
   const cx = W / 2;
 
-  // one row per scanline: the cone widens toward the far end and every row fades
-  // out sideways on its own, so the silhouette has no hard edge anywhere
+  // one row per scanline: an evenly lit cone, the way the reference does it —
+  // flat across the width, feathering only near the rim, no bright spine
   for (let y = 0; y < H; y += 1) {
     const t = y / H;
-    const half = W * (0.5 - 0.44 * t) * 0.98;
+    // the mouth end (t = 1) is only slightly wider than the shade, then the cone
+    // opens fast so the light leaves the whole rim instead of a postage stamp
+    const half = W * (0.117 + 0.373 * Math.pow(1 - t, 0.72)) * 0.98;
     const g = ctx.createLinearGradient(cx - half, 0, cx + half, 0);
-    g.addColorStop(0, "rgba(255,255,255,0)");
-    g.addColorStop(0.22, "rgba(255,255,255,0.3)");
-    g.addColorStop(0.5, "rgba(255,255,255,0.92)");
-    g.addColorStop(0.78, "rgba(255,255,255,0.3)");
-    g.addColorStop(1, "rgba(255,255,255,0)");
+    for (let i = 0; i <= 16; i += 1) {
+      const at = i / 16;
+      const edge = Math.abs(at - 0.5) * 2;
+      const feather = 1 - THREE.MathUtils.smoothstep(edge, 0.62, 1);
+      g.addColorStop(at, `rgba(255,255,255,${(0.5 * feather).toFixed(3)})`);
+    }
     ctx.fillStyle = g;
     ctx.fillRect(cx - half, y, half * 2, 1);
   }
 
   ctx.globalCompositeOperation = "destination-in";
+  // even along the length too; only the tip feathers out
   const along = ctx.createLinearGradient(0, 0, 0, H);
   along.addColorStop(0, "rgba(0,0,0,0)");
-  along.addColorStop(0.35, "rgba(0,0,0,0.16)");
-  along.addColorStop(0.7, "rgba(0,0,0,0.55)");
-  along.addColorStop(1, "rgba(0,0,0,1)");
+  along.addColorStop(0.08, "rgba(0,0,0,0.55)");
+  along.addColorStop(0.18, "rgba(0,0,0,0.9)");
+  along.addColorStop(0.9, "rgba(0,0,0,0.9)");
+  along.addColorStop(1, "rgba(0,0,0,0.8)");
   ctx.fillStyle = along;
   ctx.fillRect(0, 0, W, H);
 
@@ -299,7 +304,7 @@ function beamTexture() {
 
 // a flat card that always turns its face to the camera, so the bright core
 // sits exactly on the beam axis instead of drifting to one side of a cone shell
-const beamGeometry = new THREE.PlaneGeometry(1.75, 7.2);
+const beamGeometry = new THREE.PlaneGeometry(4.6, 7.2);
 beamGeometry.rotateX(Math.PI / 2);
 beamGeometry.translate(0, 0, 0.58 + 3.6);
 
@@ -307,9 +312,9 @@ const beam = new THREE.Mesh(
   beamGeometry,
   new THREE.MeshBasicMaterial({
     map: beamTexture(),
-    color: 0xccd6ff,
+    color: 0xf2f5ff,
     transparent: true,
-    opacity: 0.34,
+    opacity: 0.68,
     depthWrite: false,
     side: THREE.DoubleSide,
   }),
@@ -317,13 +322,27 @@ const beam = new THREE.Mesh(
 beam.renderOrder = 2;
 head.add(beam);
 
-const cameraLocal = new THREE.Vector3();
+const camDir = new THREE.Vector3();
+const beamRight = new THREE.Vector3();
+const beamUp = new THREE.Vector3();
+const beamForward = new THREE.Vector3(0, 0, 1);
+const beamBasis = new THREE.Matrix4();
 
+// the card carries the cone down its local +Z, so it has to stand on that axis:
+// width along the screen-horizontal, face turned to the camera. Rotating only
+// about the beam axis leaves it edge-on, which is why the light read as a line.
 function billboardBeam() {
   head.updateMatrixWorld();
-  cameraLocal.copy(camera.position);
-  head.worldToLocal(cameraLocal);
-  beam.rotation.z = Math.atan2(cameraLocal.x, -cameraLocal.y);
+  camDir.copy(camera.position);
+  head.worldToLocal(camDir).normalize();
+
+  beamRight.crossVectors(beamForward, camDir);
+  if (beamRight.lengthSq() < 1e-6) beamRight.set(1, 0, 0);
+  beamRight.normalize();
+  beamUp.crossVectors(beamForward, beamRight).normalize();
+
+  beamBasis.makeBasis(beamRight, beamUp, beamForward);
+  beam.quaternion.setFromRotationMatrix(beamBasis);
 }
 
 /* ---------- dust motes drifting inside the beam ---------- */
@@ -420,10 +439,10 @@ const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const wanted = REST.clone();
 const aimed = REST.clone();
-const armAim = REST.clone();
 const headAim = REST.clone();
 const headAimVel = new THREE.Vector3();
 const hit = new THREE.Vector3();
+const lastWanted = new THREE.Vector3();
 
 
 function onPointer(event) {
@@ -446,38 +465,49 @@ function onPointer(event) {
 window.addEventListener("pointermove", onPointer, { passive: true });
 window.addEventListener("pointerdown", onPointer, { passive: true });
 
-// the arm leans and bends toward wherever the head is looking
-const spineInv = new THREE.Matrix4();
-const spineLocal = new THREE.Vector3();
-
-const armPose = { lean: 0, leanVel: 0, reach: 0, reachVel: 0 };
+// the arm poses itself on its own terms: every couple of seconds it picks a new
+// lean and reach at random, and the head keeps aiming at the cursor regardless.
+// Nothing about the body is a function of where the cursor sits in the list.
+const armPose = {
+  lean: 0,
+  leanVel: 0,
+  reach: 0,
+  reachVel: 0,
+  leanK: 70,
+  leanC: 9,
+  reachK: 120,
+  reachC: 13,
+  leanGoal: 0.2,
+  reachGoal: 0,
+  nextGoal: 1.5,
+};
 armPose.reach = REST_REACH;
+armPose.reachGoal = REST_REACH;
 let leanScale = 1;
 let clock = 0;
+let nextTwitch = 3;
 
-function solveArm(point, dt) {
-  spine.updateMatrix();
-  spineInv.copy(spine.matrix).invert();
-  spineLocal.copy(point).applyMatrix4(spineInv);
+function solveArm(dt) {
+  armPose.nextGoal -= dt;
+  if (armPose.nextGoal <= 0) {
+    armPose.nextGoal = 1.1 + Math.random() * 3.6;
+    armPose.leanGoal = (-0.14 + Math.random() * 0.74) * leanScale;
+    armPose.reachGoal = REST_REACH * (0.78 + Math.random() * 0.22);
+  }
 
-  // how high the cursor sits above the shoulder: + is up, - is down
-  const rise = THREE.MathUtils.clamp(
-    Math.atan2(spineLocal.y, Math.abs(spineLocal.x)),
-    -0.7,
-    0.7,
-  );
+  // a little drift on top, so even between re-picks it is never perfectly still
+  const wander =
+    Math.sin(clock * 0.41 + 1.7) * 0.012 +
+    Math.sin(clock * 0.93 + 4.2) * 0.006;
+  const leanWanted = armPose.leanGoal + wander;
+  const reachWanted = armPose.reachGoal;
 
-  // looking down swings the stem out over the desk, looking up rocks it back;
-  // looking far extends the arm, looking near folds it, so the silhouette
-  // keeps changing instead of holding one angle. Even at rest it breathes.
-  const breath = Math.sin(clock * 1.3) * 0.02 + Math.sin(clock * 0.47) * 0.012;
-  const leanWanted =
-    THREE.MathUtils.clamp((0.42 - rise) * 1.15, -0.32, 0.62) * leanScale + breath;
-  const reachWanted = REST_REACH * (1 - 0.25 * Math.min(1, Math.abs(leanWanted) / 0.62));
-
-  armPose.leanVel += (leanWanted - armPose.lean) * 70 * dt - armPose.leanVel * 9 * dt;
+  armPose.leanVel +=
+    (leanWanted - armPose.lean) * armPose.leanK * dt - armPose.leanVel * armPose.leanC * dt;
   armPose.lean += armPose.leanVel * dt;
-  armPose.reachVel += (reachWanted - armPose.reach) * 120 * dt - armPose.reachVel * 13 * dt;
+  armPose.reachVel +=
+    (reachWanted - armPose.reach) * armPose.reachK * dt -
+    armPose.reachVel * armPose.reachC * dt;
   armPose.reach += armPose.reachVel * dt;
 
   const angle = REST_ANGLE + armPose.lean;
@@ -508,17 +538,32 @@ function tick() {
   clock += dt;
 
   aimed.lerp(wanted, 1 - Math.pow(0.0012, dt));
-  armAim.lerp(wanted, 1 - Math.pow(0.05, dt));
 
-  // the whole stem also tips forward or sways back a little while it tracks
-  const lift = THREE.MathUtils.clamp((armAim.y - SHOULDER.y - 1.15) / 1.4, -1, 1);
-  const pitchWanted = -0.12 * lift;
+  // every glance gets its own eagerness and its own joint stiffness, so the same
+  // row is never reached quite the same way twice
+  const kickX = wanted.x - lastWanted.x;
+  const kickY = wanted.y - lastWanted.y;
+  if (kickX * kickX + kickY * kickY > 0.09) {
+    const eagerness = 0.7 + Math.random() * 0.7;
+    armPose.leanVel -= kickY * 0.4 * eagerness;
+    armPose.reachVel += kickY * 0.1 * eagerness;
+    headAimVel.x += kickX * 1.4 * eagerness;
+    headAimVel.y += kickY * 1.4 * eagerness;
+    armPose.leanK = 55 + Math.random() * 45;
+    armPose.leanC = 7.5 + Math.random() * 4.5;
+    armPose.reachK = 95 + Math.random() * 60;
+    armPose.reachC = 11 + Math.random() * 5;
+    lastWanted.copy(wanted);
+  }
 
-  spinePose.pitchVel += (pitchWanted - spinePose.pitch) * 46 * dt - spinePose.pitchVel * 10 * dt;
-  spinePose.pitch += spinePose.pitchVel * dt;
-  spine.rotation.set(spinePose.pitch, 0, 0);
-
-  solveArm(armAim, dt);
+  // small involuntary glances while it idles, so it never sits perfectly still
+  nextTwitch -= dt;
+  if (nextTwitch <= 0) {
+    nextTwitch = 2.6 + Math.random() * 4;
+    headAimVel.x += (Math.random() - 0.5) * 0.8;
+    headAimVel.y += (Math.random() - 0.5) * 0.8;
+    armPose.leanVel += (Math.random() - 0.5) * 0.12;
+  }
 
   // the head swings after the cursor instead of snapping to it, so it reads
   // as curious rather than robotic
@@ -526,6 +571,16 @@ function tick() {
   headAimVel.y += ((aimed.y - headAim.y) * 240 - headAimVel.y * 18) * dt;
   headAim.x += headAimVel.x * dt;
   headAim.y += headAimVel.y * dt;
+
+  // the stem tips forward a touch when it happens to lean out, purely from its
+  // own random pose, never from where the cursor is
+  const pitchWanted = 0.1 * (armPose.leanGoal / 0.6);
+
+  spinePose.pitchVel += (pitchWanted - spinePose.pitch) * 46 * dt - spinePose.pitchVel * 10 * dt;
+  spinePose.pitch += spinePose.pitchVel * dt;
+  spine.rotation.set(spinePose.pitch, 0, 0);
+
+  solveArm(dt);
 
   head.lookAt(headAim);
   billboardBeam();

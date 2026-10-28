@@ -13,6 +13,8 @@ const types = {
   ".jpg": "image/jpeg",
 };
 
+const port = Number(process.env.PORT || process.env.SERVER_PORT || 5178);
+
 createServer(async (request, response) => {
   const url = decodeURIComponent(request.url.split("?")[0]);
   const path = join(root, url === "/" ? "index.html" : url);
@@ -32,6 +34,6 @@ createServer(async (request, response) => {
   } catch {
     response.writeHead(404, { "content-type": "text/plain" }).end("not found");
   }
-}).listen(5178, () => {
-  console.log("lamp-folio-3d → http://localhost:5178");
+}).listen(port, () => {
+  console.log(`lamp-folio-3d → http://localhost:${port}`);
 });

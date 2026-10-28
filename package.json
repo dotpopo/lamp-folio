@@ -1,0 +1,8 @@
+{
+  "name": "popo-lamp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  }
+}
