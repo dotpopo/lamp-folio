@@ -1,0 +1,207 @@
+:root {
+  --blue: #2b2bd6;
+  --paper: #f6f2e8;
+  --menu: #b8b5f3;
+  --menu-on: #1f1fae;
+
+  --badge: clamp(19px, 1.55vw, 27px);
+  --gap: clamp(13px, 1.7vw, 26px);
+  --label: clamp(34px, 5.35vw, 78px);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--blue);
+  color: var(--paper);
+  font-family: "Playfair Display", "Iowan Old Style", Georgia, serif;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.scene {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(130% 102% at 14% 20%, #3b3be6 0%, #2d2dd8 34%, var(--blue) 58%, #2323b9 100%);
+  isolation: isolate;
+}
+
+#stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 1;
+}
+
+/* ---------- typography + menu ---------- */
+
+.intro {
+  position: absolute;
+  left: clamp(22px, 6vw, 118px);
+  top: clamp(70px, 14vh, 168px);
+  z-index: 4;
+}
+
+.hand {
+  margin: 0 0 clamp(16px, 4vh, 42px);
+  padding-left: calc(var(--badge) + var(--gap));
+  font-family: "Caveat", "Bradley Hand", cursive;
+  font-size: clamp(17px, 1.55vw, 26px);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+  opacity: 0.94;
+  text-shadow: 0 1px 0 rgba(20, 20, 120, 0.25);
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: clamp(6px, 1.5vh, 18px);
+}
+
+.item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 0.06em 0;
+  font-size: var(--label);
+  text-decoration: none;
+  color: var(--menu);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.label {
+  position: relative;
+  z-index: 2;
+  font-size: 1em;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.012em;
+  transition: color 0.28s ease;
+}
+
+.num {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: var(--badge);
+  height: var(--badge);
+  border: 1.4px solid currentColor;
+  border-radius: 50%;
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: calc(var(--badge) * 0.46);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding-top: 0.14em;
+  transition: color 0.28s ease, background-color 0.28s ease, border-color 0.28s ease;
+}
+
+.blob {
+  position: absolute;
+  z-index: 1;
+  left: calc(var(--badge) + var(--gap) - 0.16em);
+  right: -0.26em;
+  top: 46%;
+  height: 0.96em;
+  opacity: 0;
+  transform: translateY(-50%) scale(0.86, 0.9);
+  transform-origin: 22% 50%;
+  transition: opacity 0.26s ease, transform 0.42s cubic-bezier(0.22, 0.9, 0.24, 1);
+  pointer-events: none;
+}
+
+.blob svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.item:nth-child(odd) .blob { rotate: -0.7deg; }
+.item:nth-child(even) .blob { rotate: 0.6deg; }
+
+.item:hover .label,
+.item:focus-visible .label {
+  color: var(--menu-on);
+}
+
+.item:hover .num,
+.item:focus-visible .num {
+  color: var(--menu-on);
+  background-color: var(--paper);
+  border-color: var(--paper);
+}
+
+.item:hover .blob,
+.item:focus-visible .blob {
+  opacity: 1;
+  transform: translateY(-50%) scale(1, 1);
+}
+
+.item:focus-visible { outline: none; }
+
+.item:active .blob {
+  transform: translateY(-50%) scale(1.02, 0.96);
+}
+
+/* ---------- grain + vignette ---------- */
+
+.grain {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0.42;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+  background-size: 220px 220px;
+}
+
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 100% at 50% 45%, transparent 55%, rgba(18, 18, 92, 0.28) 100%);
+}
+
+/* ---------- responsive ---------- */
+
+@media (max-aspect-ratio: 1/1) {
+  .intro {
+    left: 7vw;
+    top: 7vh;
+  }
+
+  :root {
+    --label: clamp(30px, 8.8vw, 46px);
+    --badge: clamp(17px, 4.4vw, 22px);
+    --gap: clamp(11px, 3.4vw, 18px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blob { transition-duration: 0.01ms; }
+}
